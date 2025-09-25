@@ -17,14 +17,17 @@ from open_webui.constants import ERROR_MESSAGES
 # Load .env file
 ####################################
 
-OPEN_WEBUI_DIR = Path(__file__).parent  # the path containing this file
-print(OPEN_WEBUI_DIR)
+# Use .resolve() to get the canonical path, removing any '..' or '.' components
+ENV_FILE_PATH = Path(__file__).resolve()
 
-BACKEND_DIR = OPEN_WEBUI_DIR.parent  # the path containing this file
-BASE_DIR = BACKEND_DIR.parent  # the path containing the backend/
+# OPEN_WEBUI_DIR should be the directory where env.py resides (open_webui/)
+OPEN_WEBUI_DIR = ENV_FILE_PATH.parent
 
-print(BACKEND_DIR)
-print(BASE_DIR)
+# BACKEND_DIR is the parent of OPEN_WEBUI_DIR (backend/)
+BACKEND_DIR = OPEN_WEBUI_DIR.parent
+
+# BASE_DIR is the parent of BACKEND_DIR (open-webui-dev/)
+BASE_DIR = BACKEND_DIR.parent
 
 try:
     from dotenv import find_dotenv, load_dotenv
@@ -288,6 +291,9 @@ DB_VARS = {
 
 if all(DB_VARS.values()):
     DATABASE_URL = f"{DB_VARS['db_type']}://{DB_VARS['db_cred']}@{DB_VARS['db_host']}:{DB_VARS['db_port']}/{DB_VARS['db_name']}"
+elif DATABASE_TYPE == "sqlite+sqlcipher" and not os.environ.get("DATABASE_URL"):
+    # Handle SQLCipher with local file when DATABASE_URL wasn't explicitly set
+    DATABASE_URL = f"sqlite+sqlcipher:///{DATA_DIR}/webui.db"
 
 # Replace the postgres:// with postgresql://
 if "postgres://" in DATABASE_URL:
@@ -333,6 +339,21 @@ else:
     except Exception:
         DATABASE_POOL_RECYCLE = 3600
 
+DATABASE_ENABLE_SQLITE_WAL = (
+    os.environ.get("DATABASE_ENABLE_SQLITE_WAL", "False").lower() == "true"
+)
+
+DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL = os.environ.get(
+    "DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL", None
+)
+if DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL is not None:
+    try:
+        DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL = float(
+            DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL
+        )
+    except Exception:
+        DATABASE_USER_ACTIVE_STATUS_UPDATE_INTERVAL = 0.0
+
 RESET_CONFIG_ON_START = (
     os.environ.get("RESET_CONFIG_ON_START", "False").lower() == "true"
 )
@@ -341,12 +362,17 @@ ENABLE_REALTIME_CHAT_SAVE = (
     os.environ.get("ENABLE_REALTIME_CHAT_SAVE", "False").lower() == "true"
 )
 
+ENABLE_QUERIES_CACHE = os.environ.get("ENABLE_QUERIES_CACHE", "False").lower() == "true"
+
 ####################################
 # REDIS
 ####################################
 
 REDIS_URL = os.environ.get("REDIS_URL", "")
+REDIS_CLUSTER = os.environ.get("REDIS_CLUSTER", "False").lower() == "true"
+
 REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "open-webui")
+
 REDIS_SENTINEL_HOSTS = os.environ.get("REDIS_SENTINEL_HOSTS", "")
 REDIS_SENTINEL_PORT = os.environ.get("REDIS_SENTINEL_PORT", "26379")
 
@@ -378,6 +404,14 @@ except ValueError:
 ####################################
 
 WEBUI_AUTH = os.environ.get("WEBUI_AUTH", "True").lower() == "true"
+
+ENABLE_INITIAL_ADMIN_SIGNUP = (
+    os.environ.get("ENABLE_INITIAL_ADMIN_SIGNUP", "False").lower() == "true"
+)
+ENABLE_SIGNUP_PASSWORD_CONFIRMATION = (
+    os.environ.get("ENABLE_SIGNUP_PASSWORD_CONFIRMATION", "False").lower() == "true"
+)
+
 WEBUI_AUTH_TRUSTED_EMAIL_HEADER = os.environ.get(
     "WEBUI_AUTH_TRUSTED_EMAIL_HEADER", None
 )
@@ -431,6 +465,26 @@ ENABLE_COMPRESSION_MIDDLEWARE = (
     os.environ.get("ENABLE_COMPRESSION_MIDDLEWARE", "True").lower() == "true"
 )
 
+####################################
+# OAUTH Configuration
+####################################
+
+
+ENABLE_OAUTH_ID_TOKEN_COOKIE = (
+    os.environ.get("ENABLE_OAUTH_ID_TOKEN_COOKIE", "True").lower() == "true"
+)
+
+OAUTH_SESSION_TOKEN_ENCRYPTION_KEY = os.environ.get(
+    "OAUTH_SESSION_TOKEN_ENCRYPTION_KEY", WEBUI_SECRET_KEY
+)
+
+
+####################################
+# SCIM Configuration
+####################################
+
+SCIM_ENABLED = os.environ.get("SCIM_ENABLED", "False").lower() == "true"
+SCIM_TOKEN = os.environ.get("SCIM_TOKEN", "")
 
 ####################################
 # LICENSE_KEY
@@ -474,6 +528,38 @@ else:
 
 
 ####################################
+# CHAT
+####################################
+
+CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = os.environ.get(
+    "CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE", "1"
+)
+
+if CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE == "":
+    CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = 1
+else:
+    try:
+        CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = int(
+            CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE
+        )
+    except Exception:
+        CHAT_RESPONSE_STREAM_DELTA_CHUNK_SIZE = 1
+
+
+CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES = os.environ.get(
+    "CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES", "10"
+)
+
+if CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES == "":
+    CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES = 10
+else:
+    try:
+        CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES = int(CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES)
+    except Exception:
+        CHAT_RESPONSE_MAX_TOOL_CALL_RETRIES = 10
+
+
+####################################
 # WEBSOCKET SUPPORT
 ####################################
 
@@ -485,6 +571,9 @@ ENABLE_WEBSOCKET_SUPPORT = (
 WEBSOCKET_MANAGER = os.environ.get("WEBSOCKET_MANAGER", "")
 
 WEBSOCKET_REDIS_URL = os.environ.get("WEBSOCKET_REDIS_URL", REDIS_URL)
+WEBSOCKET_REDIS_CLUSTER = (
+    os.environ.get("WEBSOCKET_REDIS_CLUSTER", str(REDIS_CLUSTER)).lower() == "true"
+)
 
 websocket_redis_lock_timeout = os.environ.get("WEBSOCKET_REDIS_LOCK_TIMEOUT", "60")
 
@@ -494,8 +583,8 @@ except ValueError:
     WEBSOCKET_REDIS_LOCK_TIMEOUT = 60
 
 WEBSOCKET_SENTINEL_HOSTS = os.environ.get("WEBSOCKET_SENTINEL_HOSTS", "")
-
 WEBSOCKET_SENTINEL_PORT = os.environ.get("WEBSOCKET_SENTINEL_PORT", "26379")
+
 
 AIOHTTP_CLIENT_TIMEOUT = os.environ.get("AIOHTTP_CLIENT_TIMEOUT", "")
 
@@ -638,12 +727,33 @@ AUDIT_EXCLUDED_PATHS = [path.lstrip("/") for path in AUDIT_EXCLUDED_PATHS]
 ####################################
 
 ENABLE_OTEL = os.environ.get("ENABLE_OTEL", "False").lower() == "true"
+ENABLE_OTEL_TRACES = os.environ.get("ENABLE_OTEL_TRACES", "False").lower() == "true"
 ENABLE_OTEL_METRICS = os.environ.get("ENABLE_OTEL_METRICS", "False").lower() == "true"
+ENABLE_OTEL_LOGS = os.environ.get("ENABLE_OTEL_LOGS", "False").lower() == "true"
+
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get(
     "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"
 )
+OTEL_METRICS_EXPORTER_OTLP_ENDPOINT = os.environ.get(
+    "OTEL_METRICS_EXPORTER_OTLP_ENDPOINT", OTEL_EXPORTER_OTLP_ENDPOINT
+)
+OTEL_LOGS_EXPORTER_OTLP_ENDPOINT = os.environ.get(
+    "OTEL_LOGS_EXPORTER_OTLP_ENDPOINT", OTEL_EXPORTER_OTLP_ENDPOINT
+)
 OTEL_EXPORTER_OTLP_INSECURE = (
     os.environ.get("OTEL_EXPORTER_OTLP_INSECURE", "False").lower() == "true"
+)
+OTEL_METRICS_EXPORTER_OTLP_INSECURE = (
+    os.environ.get(
+        "OTEL_METRICS_EXPORTER_OTLP_INSECURE", str(OTEL_EXPORTER_OTLP_INSECURE)
+    ).lower()
+    == "true"
+)
+OTEL_LOGS_EXPORTER_OTLP_INSECURE = (
+    os.environ.get(
+        "OTEL_LOGS_EXPORTER_OTLP_INSECURE", str(OTEL_EXPORTER_OTLP_INSECURE)
+    ).lower()
+    == "true"
 )
 OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "open-webui")
 OTEL_RESOURCE_ATTRIBUTES = os.environ.get(
@@ -655,11 +765,30 @@ OTEL_TRACES_SAMPLER = os.environ.get(
 OTEL_BASIC_AUTH_USERNAME = os.environ.get("OTEL_BASIC_AUTH_USERNAME", "")
 OTEL_BASIC_AUTH_PASSWORD = os.environ.get("OTEL_BASIC_AUTH_PASSWORD", "")
 
+OTEL_METRICS_BASIC_AUTH_USERNAME = os.environ.get(
+    "OTEL_METRICS_BASIC_AUTH_USERNAME", OTEL_BASIC_AUTH_USERNAME
+)
+OTEL_METRICS_BASIC_AUTH_PASSWORD = os.environ.get(
+    "OTEL_METRICS_BASIC_AUTH_PASSWORD", OTEL_BASIC_AUTH_PASSWORD
+)
+OTEL_LOGS_BASIC_AUTH_USERNAME = os.environ.get(
+    "OTEL_LOGS_BASIC_AUTH_USERNAME", OTEL_BASIC_AUTH_USERNAME
+)
+OTEL_LOGS_BASIC_AUTH_PASSWORD = os.environ.get(
+    "OTEL_LOGS_BASIC_AUTH_PASSWORD", OTEL_BASIC_AUTH_PASSWORD
+)
 
 OTEL_OTLP_SPAN_EXPORTER = os.environ.get(
     "OTEL_OTLP_SPAN_EXPORTER", "grpc"
 ).lower()  # grpc or http
 
+OTEL_METRICS_OTLP_SPAN_EXPORTER = os.environ.get(
+    "OTEL_METRICS_OTLP_SPAN_EXPORTER", OTEL_OTLP_SPAN_EXPORTER
+).lower()  # grpc or http
+
+OTEL_LOGS_OTLP_SPAN_EXPORTER = os.environ.get(
+    "OTEL_LOGS_OTLP_SPAN_EXPORTER", OTEL_OTLP_SPAN_EXPORTER
+).lower()  # grpc or http
 
 ####################################
 # TOOLS/FUNCTIONS PIP OPTIONS

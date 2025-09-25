@@ -50,6 +50,7 @@ export const channels = writable([]);
 export const chats = writable(null);
 export const pinnedChats = writable([]);
 export const tags = writable([]);
+export const folders = writable([]);
 
 export const selectedFolder = writable(null);
 
@@ -161,7 +162,7 @@ type Settings = {
 	richTextInput?: boolean;
 	params?: any;
 	userLocation?: any;
-	webSearch?: boolean;
+	webSearch?: any;
 	memory?: boolean;
 	autoTags?: boolean;
 	autoFollowUps?: boolean;

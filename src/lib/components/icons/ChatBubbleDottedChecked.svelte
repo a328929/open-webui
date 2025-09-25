@@ -11,9 +11,11 @@
 	stroke="currentColor"
 	class={className}
 >
+	<path d="M8 12L11 15L16 10" stroke-linecap="round" stroke-linejoin="round"></path>
 	<path
+		d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z"
 		stroke-linecap="round"
 		stroke-linejoin="round"
-		d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
-	/>
+		stroke-dasharray="2.5 3.5"
+	></path>
 </svg>

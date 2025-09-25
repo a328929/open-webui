@@ -15,7 +15,8 @@
 		getChatList,
 		getChatListByTagName,
 		getPinnedChatList,
-		updateChatById
+		updateChatById,
+		updateChatFolderIdById
 	} from '$lib/apis/chats';
 	import {
 		chatId,
@@ -136,10 +137,36 @@
 		dispatch('change');
 	};
 
+	const moveChatHandler = async (chatId, folderId) => {
+		if (chatId && folderId) {
+			const res = await updateChatFolderIdById(localStorage.token, chatId, folderId).catch(
+				(error) => {
+					toast.error(`${error}`);
+					return null;
+				}
+			);
+
+			if (res) {
+				currentChatPage.set(1);
+				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+				await pinnedChats.set(await getPinnedChatList(localStorage.token));
+
+				dispatch('change');
+
+				toast.success($i18n.t('Chat moved successfully'));
+			}
+		} else {
+			toast.error($i18n.t('Failed to move chat'));
+		}
+	};
+
 	let itemElement;
 
 	let generating = false;
+
+	let ignoreBlur = false;
 	let doubleClicked = false;
+
 	let dragged = false;
 	let x = 0;
 	let y = 0;
@@ -181,8 +208,18 @@
 		dragged = false;
 	};
 
+	const onClickOutside = (event) => {
+		if (confirmEdit && !event.target.closest(`#chat-title-input-${id}`)) {
+			confirmEdit = false;
+			ignoreBlur = false;
+			chatTitle = '';
+		}
+	};
+
 	onMount(() => {
 		if (itemElement) {
+			document.addEventListener('click', onClickOutside, true);
+
 			// Event listener for when dragging starts
 			itemElement.addEventListener('dragstart', onDragStart);
 			// Event listener for when dragging occurs (optional)
@@ -194,6 +231,8 @@
 
 	onDestroy(() => {
 		if (itemElement) {
+			document.removeEventListener('click', onClickOutside, true);
+
 			itemElement.removeEventListener('dragstart', onDragStart);
 			itemElement.removeEventListener('drag', onDrag);
 			itemElement.removeEventListener('dragend', onDragEnd);
@@ -224,7 +263,10 @@
 
 		setTimeout(() => {
 			const input = document.getElementById(`chat-title-input-${id}`);
-			if (input) input.focus();
+			if (input) {
+				input.focus();
+				input.select();
+			}
 		}, 0);
 	};
 
@@ -314,10 +356,16 @@
 				bind:value={chatTitle}
 				class=" bg-transparent w-full outline-hidden mr-10"
 				placeholder={generating ? $i18n.t('Generating...') : ''}
+				disabled={generating}
 				on:keydown={chatTitleInputKeydownHandler}
 				on:blur={async (e) => {
 					// check if target is generate button
-					if (e.relatedTarget?.id === 'generate-title-button') {
+					if (ignoreBlur) {
+						ignoreBlur = false;
+
+						if (e.relatedTarget?.id === 'generate-title-button') {
+							generateTitleHandler();
+						}
 						return;
 					}
 
@@ -356,11 +404,8 @@
 			on:click={() => {
 				dispatch('select');
 
-				if (
-					$selectedFolder &&
-					!($selectedFolder?.items?.chats.map((chat) => chat.id) ?? []).includes(id)
-				) {
-					selectedFolder.set(null); // Reset selected folder if the chat is not in it
+				if ($selectedFolder) {
+					selectedFolder.set(null);
 				}
 
 				if ($mobile) {
@@ -384,7 +429,7 @@
 			draggable="false"
 		>
 			<div class=" flex self-center flex-1 w-full">
-				<div dir="auto" class="text-left self-center overflow-hidden w-full h-[20px]">
+				<div dir="auto" class="text-left self-center overflow-hidden w-full h-[20px] truncate">
 					{title}
 				</div>
 			</div>
@@ -417,14 +462,11 @@
 			>
 				<Tooltip content={$i18n.t('Generate')}>
 					<button
-						class=" self-center dark:hover:text-white transition"
+						class=" self-center dark:hover:text-white transition disabled:cursor-not-allowed"
 						id="generate-title-button"
-						on:click={(e) => {
-							e.preventDefault();
-							e.stopImmediatePropagation();
-							e.stopPropagation();
-
-							generateTitleHandler();
+						disabled={generating}
+						on:mouseenter={() => {
+							ignoreBlur = true;
 						}}
 					>
 						<Sparkles strokeWidth="2" />
@@ -467,6 +509,7 @@
 					shareHandler={() => {
 						showShareChatModal = true;
 					}}
+					{moveChatHandler}
 					archiveChatHandler={() => {
 						archiveChatHandler(id);
 					}}

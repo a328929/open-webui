@@ -10,7 +10,7 @@
 
 	import { toast } from 'svelte-sonner';
 
-	import { chatId, selectedFolder } from '$lib/stores';
+	import { chatId, mobile, selectedFolder, showSidebar } from '$lib/stores';
 
 	import {
 		deleteFolderById,
@@ -38,6 +38,7 @@
 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import FolderModal from './Folders/FolderModal.svelte';
 	import { goto } from '$app/navigation';
+	import Emoji from '$lib/components/common/Emoji.svelte';
 
 	export let open = false;
 
@@ -58,6 +59,8 @@
 
 	let draggedOver = false;
 	let dragged = false;
+
+	let clickTimer = null;
 
 	let name = '';
 
@@ -114,59 +117,66 @@
 					} else {
 						// Handle the drag-and-drop data for folders or chats (same as before)
 						const dataTransfer = e.dataTransfer.getData('text/plain');
-						const data = JSON.parse(dataTransfer);
-						console.log(data);
 
-						const { type, id, item } = data;
+						try {
+							const data = JSON.parse(dataTransfer);
+							console.log(data);
 
-						if (type === 'folder') {
-							open = true;
-							if (id === folderId) {
-								return;
-							}
-							// Move the folder
-							const res = await updateFolderParentIdById(localStorage.token, id, folderId).catch(
-								(error) => {
-									toast.error(`${error}`);
-									return null;
+							const { type, id, item } = data;
+
+							if (type === 'folder') {
+								open = true;
+								if (id === folderId) {
+									return;
 								}
-							);
+								// Move the folder
+								const res = await updateFolderParentIdById(localStorage.token, id, folderId).catch(
+									(error) => {
+										toast.error(`${error}`);
+										return null;
+									}
+								);
 
-							if (res) {
-								dispatch('update');
-							}
-						} else if (type === 'chat') {
-							open = true;
+								if (res) {
+									dispatch('update');
+								}
+							} else if (type === 'chat') {
+								open = true;
 
-							let chat = await getChatById(localStorage.token, id).catch((error) => {
-								return null;
-							});
-							if (!chat && item) {
-								chat = await importChat(
+								let chat = await getChatById(localStorage.token, id).catch((error) => {
+									return null;
+								});
+								if (!chat && item) {
+									chat = await importChat(
+										localStorage.token,
+										item.chat,
+										item?.meta ?? {},
+										false,
+										null,
+										item?.created_at ?? null,
+										item?.updated_at ?? null
+									).catch((error) => {
+										toast.error(`${error}`);
+										return null;
+									});
+								}
+
+								// Move the chat
+								const res = await updateChatFolderIdById(
 									localStorage.token,
-									item.chat,
-									item?.meta ?? {},
-									false,
-									null,
-									item?.created_at ?? null,
-									item?.updated_at ?? null
+									chat.id,
+									folderId
 								).catch((error) => {
 									toast.error(`${error}`);
 									return null;
 								});
-							}
 
-							// Move the chat
-							const res = await updateChatFolderIdById(localStorage.token, chat.id, folderId).catch(
-								(error) => {
-									toast.error(`${error}`);
-									return null;
+								if (res) {
+									dispatch('update');
 								}
-							);
-
-							if (res) {
-								dispatch('update');
 							}
+						} catch (error) {
+							console.log('Error parsing dataTransfer:', error);
 						}
 					}
 				}
@@ -272,7 +282,7 @@
 		}
 	};
 
-	const updateHandler = async ({ name, data }) => {
+	const updateHandler = async ({ name, meta, data }) => {
 		if (name === '') {
 			toast.error($i18n.t('Folder name cannot be empty.'));
 			return;
@@ -285,6 +295,7 @@
 
 		const res = await updateFolderById(localStorage.token, folderId, {
 			name,
+			...(meta ? { meta } : {}),
 			...(data ? { data } : {})
 		}).catch((error) => {
 			toast.error(`${error}`);
@@ -334,14 +345,15 @@
 		console.log('Edit');
 		await tick();
 		name = folders[folderId].name;
-
 		edit = true;
+
+		await tick();
 		await tick();
 
 		const input = document.getElementById(`folder-${folderId}-input`);
-
 		if (input) {
 			input.focus();
+			input.select();
 		}
 	};
 
@@ -419,26 +431,68 @@
 		<div class="w-full group">
 			<button
 				id="folder-{folderId}-button"
-				class="relative w-full py-1.5 px-2 rounded-md flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-500 font-medium hover:bg-gray-100 dark:hover:bg-gray-900 transition {$selectedFolder?.id ===
+				class="relative w-full py-1 px-1.5 rounded-lg flex items-center gap-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition {$selectedFolder?.id ===
 				folderId
 					? 'bg-gray-100 dark:bg-gray-900'
 					: ''}"
-				on:dblclick={() => {
+				on:dblclick={(e) => {
+					if (clickTimer) {
+						clearTimeout(clickTimer); // cancel the single-click action
+						clickTimer = null;
+					}
 					renameHandler();
 				}}
 				on:click={async (e) => {
-					await goto('/');
+					(e) => e.stopPropagation();
+					if (clickTimer) {
+						clearTimeout(clickTimer);
+						clickTimer = null;
+					}
 
-					selectedFolder.set(folders[folderId]);
+					clickTimer = setTimeout(async () => {
+						await goto('/');
+
+						selectedFolder.set(folders[folderId]);
+
+						if ($mobile) {
+							showSidebar.set(!$showSidebar);
+						}
+						clickTimer = null;
+					}, 100); // 100ms delay (typical double-click threshold)
+				}}
+				on:pointerup={(e) => {
+					e.stopPropagation();
 				}}
 			>
-				<div class="text-gray-300 dark:text-gray-600">
-					{#if open}
-						<ChevronDown className=" size-3" strokeWidth="2.5" />
+				<button
+					class="text-gray-500 dark:text-gray-500 transition-all p-1 hover:bg-gray-200 dark:hover:bg-gray-850 rounded-lg"
+					on:click={(e) => {
+						e.stopPropagation();
+						open = !open;
+					}}
+				>
+					{#if folders[folderId]?.meta?.icon}
+						<div class="flex group-hover:hidden transition-all">
+							<Emoji className="size-3.5" shortCode={folders[folderId].meta.icon} />
+						</div>
+
+						<div class="hidden group-hover:flex transition-all p-[1px]">
+							{#if open}
+								<ChevronDown className=" size-3" strokeWidth="2.5" />
+							{:else}
+								<ChevronRight className=" size-3" strokeWidth="2.5" />
+							{/if}
+						</div>
 					{:else}
-						<ChevronRight className=" size-3" strokeWidth="2.5" />
+						<div class="p-[1px]">
+							{#if open}
+								<ChevronDown className=" size-3" strokeWidth="2.5" />
+							{:else}
+								<ChevronRight className=" size-3" strokeWidth="2.5" />
+							{/if}
+						</div>
 					{/if}
-				</div>
+				</button>
 
 				<div class="translate-y-[0.5px] flex-1 justify-start text-start line-clamp-1">
 					{#if edit}
@@ -446,10 +500,8 @@
 							id="folder-{folderId}-input"
 							type="text"
 							bind:value={name}
-							on:focus={(e) => {
-								e.target.select();
-							}}
 							on:blur={() => {
+								console.log('Blur');
 								updateHandler({ name });
 								edit = false;
 							}}
@@ -467,7 +519,7 @@
 									edit = false;
 								}
 							}}
-							class="w-full h-full bg-transparent text-gray-500 dark:text-gray-500 outline-hidden"
+							class="w-full h-full bg-transparent outline-hidden"
 						/>
 					{:else}
 						{folders[folderId].name}
@@ -476,10 +528,6 @@
 
 				<button
 					class="absolute z-10 right-2 invisible group-hover:visible self-center flex items-center dark:text-gray-300"
-					on:pointerup={(e) => {
-						e.stopPropagation();
-					}}
-					on:click={(e) => e.stopPropagation()}
 				>
 					<FolderMenu
 						onEdit={() => {
@@ -492,9 +540,9 @@
 							exportHandler();
 						}}
 					>
-						<button class="p-0.5 dark:hover:bg-gray-850 rounded-lg touch-auto" on:click={(e) => {}}>
+						<div class="p-1 dark:hover:bg-gray-850 rounded-lg touch-auto">
 							<EllipsisHorizontal className="size-4" strokeWidth="2.5" />
-						</button>
+						</div>
 					</FolderMenu>
 				</button>
 			</button>
